@@ -111,3 +111,4 @@ jobs:
           name: Gastos build ${{ github.run_number }}
           files: Gastos.apk
           make_latest: true
+          
