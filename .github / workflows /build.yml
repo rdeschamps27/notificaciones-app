@@ -23,18 +23,88 @@ jobs:
         with:
           gradle-version: "8.11.1"
 
-      - name: Compilar
-        run: gradle :app:assembleDebug --no-daemon
+      - name: Armar proyecto
+        run: |
+          set -e
+          P=$RUNNER_TEMP/proj
+          SRC=$P/app/src/main/java/com/gastos/captura
+          mkdir -p $SRC
+          buscar() { find . -path ./.git -prune -o -type f -name "$1" -print | head -1; }
+          for f in BankNotificationListener Capture Config MainActivity SendWorker Sender SmsReceiver; do
+            cp "$(buscar $f.kt)" $SRC/
+          done
+          cp "$(buscar AndroidManifest.xml)" $P/app/src/main/
+          cp "$(buscar debug.keystore)" $P/app/
 
-      - name: Renombrar
-        run: cp app/build/outputs/apk/debug/app-debug.apk Gastos.apk
+          cat > $P/settings.gradle.kts <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "GastosBanco"
+          include(":app")
+          EOF
+
+          cat > $P/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.7.3" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+          }
+          EOF
+
+          cat > $P/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m
+          android.useAndroidX=true
+          EOF
+
+          cat > $P/app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.gastos.captura"
+              compileSdk = 35
+              defaultConfig {
+                  applicationId = "com.gastos.captura"
+                  minSdk = 29
+                  targetSdk = 35
+                  versionCode = 1
+                  versionName = "0.1"
+              }
+              signingConfigs {
+                  getByName("debug") {
+                      storeFile = file("debug.keystore")
+                      storePassword = "android"
+                      keyAlias = "androiddebugkey"
+                      keyPassword = "android"
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+          }
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.work:work-runtime-ktx:2.9.1")
+          }
+          EOF
+          find $P -type f | sort
+
+      - name: Compilar
+        run: |
+          gradle -p $RUNNER_TEMP/proj :app:assembleDebug --no-daemon
+          cp $RUNNER_TEMP/proj/app/build/outputs/apk/debug/app-debug.apk Gastos.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: Gastos-apk
           path: Gastos.apk
 
-      - name: Publicar en Releases (descarga directa del .apk)
+      - name: Publicar en Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
